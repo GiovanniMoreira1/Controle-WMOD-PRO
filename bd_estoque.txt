@@ -1,0 +1,7 @@
+bd_estoque
+-> dados vindos do forms
+users - id_user/nome_user(PK)/email
+equipamentos - id_equipamento/nome_equipamento(PK)/nome_marca/n_serie/estado/em funcionamento/quantidade(PK)
+entradas - id_entrada/data/nome_user/nome_equipamento/quantidade
+saídas - id_saida/data/nome_user/nome_equipamento/quantidade
+

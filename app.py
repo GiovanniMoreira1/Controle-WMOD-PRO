@@ -1,6 +1,5 @@
-from functions import *
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 from credentials import DB_PASSWORD, DB_USER
 import psycopg
 from PIL import Image, ImageTk
@@ -252,9 +251,6 @@ def inserir_equipamento_janela(janela_pai):
     )
     sub_btn.pack(pady=10)
 
-
-
-
 def listar_equipamentos():
     with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
         with conn.cursor() as cur:
@@ -291,7 +287,7 @@ def excluir_equipamento(id_equipamento):
                 cur.execute(
                     f"SELECT quantidade FROM equipamentos WHERE id_equipamento = %s", (id_equipamento,)
                 )       
-                gerar_log("Retirada", int(cur.fetchone()), id_equipamento)
+                gerar_log("Retirada", cur.fetchone(), id_equipamento)
 
                 cur.execute(
                     f"UPDATE equipamentos SET ativo = FALSE WHERE id_equipamento = %s", (id_equipamento,),
@@ -301,37 +297,6 @@ def excluir_equipamento(id_equipamento):
                 print(e)
                 return e    
                 
-'''
-def excluir_equipamento_janela(janela_pai):
-    janela_pai.withdraw()
-    janela = tk.Toplevel(janela_pai)
-    janela.wm_title("Excluir Equipamento")
-    janela.geometry("900x600")
-    janela.focus_set()
-    
-    
-    frame = tk.Frame(janela)
-    frame.pack(fill=tk.X, expand=True, padx=10, pady=40)
-    
-    label = tk.Label(janela, text="Equipamentos")
-    label.place(x=10, y=10)
-    
-    scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL)
-    lista = tk.Listbox(frame, yscrollcommand=scrollbar.set, height=50, width=50, font='calibre', selectmode='single')
-    
-    rows = listar_equipamentos()
-    
-    # rows[i][1] = nome, rows[i][3] = fabricante, rows[i][4] = n_serie, rows[i][5] = localizacao, rows[i][6] = status
-    for i in range(len(rows)):
-        lista.insert(i, f"Nome: {rows[i][1]} # Quantidade: {rows[i][2]} # Fabricante: {rows[i][4]} # Nº Série: {rows[i][5]} # Localização: {rows[i][6]}")
-
-    delete_btn = tk.Button(janela, width=30, text="Excluir", command = lambda: excluir_equipamento_tk(lista))
-    delete_btn.place(x=350, y=567)
-            
-    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    lista.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-'''
-
 def excluir_equipamento_janela(janela_pai):
     janela_pai.withdraw()
 
@@ -443,12 +408,278 @@ def excluir_equipamento_janela(janela_pai):
     )
     delete_btn.pack(side="right")
 
+def chamar_erro(erro):
+    tk.messagebox.showerror(
+        "Erro",
+        f"Não foi possível concluir a operação. Erro: {erro}"
+    )
 
+def refresh_treeview(tabela): #func p dar refresh na tabela apos alterações
+    tabela.delete(*tabela.get_children())
+    rows = listar_equipamentos()
+    for row in rows:
+        tabela.insert(
+            "",
+            "end",
+            iid=row[0],
+            values=(
+                row[1],
+                row[2],
+                row[4],
+                row[5],
+                row[6],
+                row[7]
+            )
+        )
 
+def atualizar_equipamento(iid, categoria, janela, tabela):
+     novo_nome = simpledialog.askstring(
+         f"Atualizar {categoria}",
+         f"Digite o novo valor para {categoria}",
+         parent=janela
+     )
+     with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    f"UPDATE equipamentos SET {categoria} = %s WHERE id_equipamento = %s", (novo_nome, iid)
+                )
+                cur.execute(
+                    f"SELECT quantidade FROM equipamentos WHERE id_equipamento = %s", (iid,)
+                )
+                quantidade = cur.fetchone()
+                conn.commit()
 
+                tk.messagebox.showinfo(
+                    "Informação",
+                    "Equipamento atualizado com sucesso!",
+                    parent=janela
+                )
+                gerar_log("Alteração", quantidade, iid)
+                janela.destroy()
+                atualizar_equipamento_tk(tabela)
+            except Exception as e:
+                chamar_erro(e)
+                return e
+            
+def buscar_nome(iid, categoria):
+     with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    f"SELECT {categoria} FROM equipamentos WHERE id_equipamento = %s", (iid,)
+                )
+                return cur.fetchone()
+            except Exception as e:
+                print(e)
+                return e 
 
+def atualizar_equipamento_tk(tabela):
+    janela = tk.Toplevel(tabela)
+    janela.title("Atualizar Equipamento")
+    janela.geometry("1000x650")
+    janela.configure(bg="#f1f4f9")
+    janela.focus_set()
+
+    selecionados = tabela.selection()
+    if selecionados != ():
+        iid = selecionados[0]
+
+        container = tk.Frame(
+            janela,
+            bg="#ffffff",
+            bd=1,
+            relief="solid",
+            highlightbackground="#e5e7eb",
+            highlightthickness=1
+        )
+        container.pack(padx=50, pady=40, fill="both", expand=True)
+
+        titulo = tk.Label(
+            container,
+            text="Atualizar Dados do Equipamento",
+            font=("Segoe UI", 18, "bold"),
+            bg="#ffffff",
+            fg="#1f2937"
+        )
+        titulo.grid(row=0, column=0, columnspan=3, pady=(25, 35))
+
+        def linha(label_texto, valor, linha, categoria):
+            tk.Label(
+                container,
+                text=f"{label_texto}:",
+                font=("Segoe UI", 11, "bold"),
+                bg="#ffffff",
+                fg="#374151",
+                width=15,
+                anchor="e"
+            ).grid(row=linha, column=0, padx=(30, 12), pady=10)
+
+            tk.Label(
+                container,
+                text=valor,
+                font=("Segoe UI", 11),
+                bg="#ffffff",
+                fg="#111827",
+                anchor="w",
+                wraplength=420,
+                justify="left"
+            ).grid(row=linha, column=1, sticky="w", pady=10)
+
+            btn = tk.Button(
+                container,
+                text="Atualizar",
+                width=18,
+                bg="#00468e",
+                fg="white",
+                activebackground="#005fbf",
+                activeforeground="white",
+                relief="flat",
+                cursor="hand2",
+                command=lambda: atualizar_equipamento(iid, categoria, janela, tabela)
+            )
+            btn.grid(row=linha, column=2, padx=30, pady=10)
+
+        linha("Nome", buscar_nome(iid, "nome"), 1, "nome")
+        linha("Quantidade", buscar_nome(iid, "quantidade"), 2, "quantidade")
+        linha("Descrição", buscar_nome(iid, "descricao"), 3, "descricao")
+        linha("Fabricante", buscar_nome(iid, "fabricante"), 4, "fabricante")
+        linha("Nº Série", buscar_nome(iid, "n_serie"), 5, "n_serie")
+        linha("Localização", buscar_nome(iid, "localizacao"), 6, "localizacao")
+
+        container.grid_rowconfigure(8, weight=1)
+    else:
+        tk.messagebox.showwarning("Warning", "Selecione um produto para atualizar!", parent=janela)
+        janela.destroy()
+        return
+    
 def atualizar_equipamento_janela(janela_pai):
-    print()
+    janela_pai.withdraw()
+
+    janela = tk.Toplevel(janela_pai)
+    janela.title("Atualizar Equipamento")
+    janela.geometry("1000x650")
+    janela.configure(bg="#f4f6f8")
+    janela.focus_set()
+
+    main_frame = tk.Frame(janela, bg="#f4f6f8")
+    main_frame.pack(expand=True, fill="both")
+
+    header = tk.Frame(main_frame, bg="#00468e", height=80)
+    header.pack(fill="x")
+    header.pack_propagate(False)
+
+    tk.Label(
+        header,
+        text="Atualizar Equipamento",
+        bg="#00468e",
+        fg="white",
+        font=("Segoe UI", 20, "bold")
+    ).pack(side="left", padx=30)
+
+    card = tk.Frame(
+        main_frame,
+        bg="white",
+        highlightbackground="#d0d7de",
+        highlightthickness=1
+    )
+    card.pack(padx=40, pady=30, fill="both", expand=True)
+    content = tk.Frame(card, bg="white")
+    content.pack(padx=20, pady=20, fill="both", expand=True)
+
+    tk.Label(
+        content,
+        text="Selecione um equipamento para atualizar",
+        bg="white",
+        font=("Segoe UI", 12, "bold")
+    ).pack(anchor="w", pady=(0, 10))
+
+    table_frame = tk.Frame(content, bg="white")
+    table_frame.pack(fill="both", expand=True)
+
+    scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL)
+
+    colunas = ("nome", "quantidade", "fabricante", "n_serie", "localizacao", "status")
+
+    tabela = ttk.Treeview(
+        table_frame,
+        columns=colunas,
+        show="headings",
+        yscrollcommand=scrollbar.set,
+        selectmode="browse",
+        height=12
+    )
+
+    scrollbar.config(command=tabela.yview)
+
+    tabela.heading("nome", text="Nome")
+    tabela.heading("quantidade", text="Qntd")
+    tabela.heading("fabricante", text="Fabricante")
+    tabela.heading("n_serie", text="Nº Série")
+    tabela.heading("localizacao", text="Localização")
+    tabela.heading("status", text="Status")
+
+    tabela.column("nome", width=220)
+    tabela.column("quantidade", width=60, anchor="center")
+    tabela.column("fabricante", width=160)
+    tabela.column("n_serie", width=130)
+    tabela.column("localizacao", width=120, anchor="center")
+    tabela.column("status", width=120, anchor="center")
+
+    rows = listar_equipamentos()
+    for row in rows:
+        tabela.insert(
+            "",
+            tk.END,
+            iid=row[0],
+            values=(
+                row[1],
+                row[2],
+                row[4],
+                row[5],
+                row[6],
+                row[7]
+            )
+        )
+
+    tabela.pack(side=tk.LEFT, fill="both", expand=True)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    
+    actions = tk.Frame(content, bg="white")
+    actions.pack(fill="x", pady=15)
+    update_btn = tk.Button(
+        actions,
+        text="🔃  Atualizar Equipamento",
+        font=("Segoe UI", 11, "bold"),
+        bg="#212c92",
+        fg="white",
+        width=28,
+        height=2,
+        bd=0,
+        cursor="hand2",
+        activebackground="#212c92",
+        activeforeground="white",
+        command=lambda: atualizar_equipamento_tk(tabela)
+    )
+    refresh_btn = tk.Button(
+        actions,
+        text="Refresh",
+        font=("Segoe UI", 11, "bold"),
+        bg="#212c92",
+        fg="white",
+        width=28,
+        height=2,
+        bd=0,
+        cursor="hand2",
+        activebackground="#212c92",
+        activeforeground="white",
+        command=lambda: {
+            atualizar_equipamento_janela(janela_pai),
+            janela.destroy()
+        }
+    )
+    update_btn.pack(side="right")
+    refresh_btn.pack(side="right", padx=15)
 
 def gerar_log(operacao, quantidade, id_equip):
     with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:

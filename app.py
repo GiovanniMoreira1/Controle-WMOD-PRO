@@ -97,7 +97,7 @@ def inserir_equipamento(params):
         with conn.cursor() as cur:
             try:
                 cur.execute(
-                    "SELECT id_equipamento FROM equipamentos WHERE n_serie = %s" (params[4])
+                    "SELECT id_equipamento FROM equipamentos WHERE n_serie = %s", (params[4])
                 )
                 if(cur.fetchone != None):
                     cur.execute(

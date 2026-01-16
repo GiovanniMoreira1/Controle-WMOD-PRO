@@ -1,19 +1,120 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
-from credentials import DB_PASSWORD, DB_USER
-import psycopg
+from credentials import DB_PASSWORD, DB_USER, EMAIL, EMAIL_PASSWORD, EMAIL_ENVIO
 from PIL import Image, ImageTk
+import psycopg
+import pandas as pd
+import sys
+import os
+import email
+import json
+from imaplib import IMAP4_SSL
+from tkextrafont import Font
+
+def alteracao_bd_json(janela):
+    print("1")
+    with open('dados.json', 'r', encoding='utf-8-sig') as f:
+        data = json.load(f)
+        
+    df = pd.DataFrame([data])
+    print(df['operacao'][0])
+    print(df['nome_equipamento'][0])
+    print("2")
+    
+    print(df['nome_armario'][0])
+    print(df['quantidade'][0])
+    print(df['setor_funcionario'][0])
+    if(df['operacao'][0] == "Entrada/Devolução"): # caso da operação ser entrada
+        print("3")
+        print("Entrada/devolução")
+        params = (df['nome_equipamento'][0], int(df['quantidade'][0]), '', '', '', df['nome_armario'][0], "Disponível", "Ativo")
+        with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
+            with conn.cursor() as cur:
+                try: 
+                    print("4")
+                    cur.execute(
+                        "INSERT INTO equipamentos (nome, quantidade, descricao, fabricante, n_serie, localizacao, status, categoria) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (params)   
+                    )
+                    conn.commit()
+                except Exception as e:
+                    print(e)
+                    tk.messagebox.showwarning("Warning", f"Produto não inserido. Erro: {e}", parent=janela)
+                    return
+        print("5")
+        messagebox.showinfo("Sucesso!", "Produto cadastrado com sucesso!")
+        return
+        
+    elif(df['operacao'][0] == "Entrada/Devolução"): # caso da operação ser retirada
+        print("entrada")
+        
+    elif(df['operacao'][0] == "Empréstimo"): # caso da operação ser empréstimo
+        print("emprestimo")
+        
+    else:
+        print("6")
+    
+def ler_anexo_email(janela):
+    mail = IMAP4_SSL('imap.gmail.com')
+    mail.login(EMAIL, EMAIL_PASSWORD)
+    mail.select('inbox')
+    
+    criterio_busca = f"UNSEEN FROM {EMAIL_ENVIO}"
+    status, data = mail.search(None, criterio_busca)
+    
+    if data[0] == b"":
+        print("sem e-mails disponíveis")
+        tk.messagebox.showwarning("Warning", "Nenhum e-mail disponível para leitura!", parent=janela)
+        return
+    
+    email_ids = data[0].split()
+    
+    for email_id in email_ids:
+        status, msg_data = mail.fetch(email_id, '(RFC822)')
+        for response_part in msg_data:
+            if(isinstance(response_part, tuple)):
+                msg = email.message_from_bytes(response_part[1])
+                print(msg["sender"])
+            
+            for part in msg.walk():
+                if(part.get_content_maintype == "multipart"):
+                    continue
+                if(part.get_content_disposition is None):
+                    continue
+                
+                filename = part.get_filename()
+                if filename:
+                    filepath = os.path.join(os.getcwd(), filename)
+                    with open(filepath, "wb") as f:
+                        f.write(part.get_payload(decode=True))
+                        
+    mail.close()
+    mail.logout()
+    
+    alteracao_bd_json(janela)
+
+def resource_path(relative_path): # solução encontrada para erro do PyInstaller não encontrar a imagem no caminhop
+    try:
+        base_path = sys._MEIPASS
+    
+    except Exception:
+        base_path = os.path.abspath(".")
+    
+    return os.path.join(base_path, relative_path)
+
 
 def menu_equipamentos():
     janela = tk.Toplevel()
     janela.title("Equipamentos")
-    janela.geometry("900x600")
+    janela.attributes('-fullscreen', True)
+    janela.bind('<Escape>', lambda event: janela.destroy())
     janela.configure(bg="#f4f6f9")
-
+    
+    
     container = tk.Frame(janela, bg="#f4f6f9")
     container.place(relx=0.5, rely=0.5, anchor="center")
 
-    img = Image.open("assets/icon.png")
+    image_path = resource_path(os.path.join("assets", "icon.png"))
+    img = Image.open(image_path)
     img = img.resize((120, 120))
     logo = ImageTk.PhotoImage(img)
     logo_label = tk.Label(container, image=logo)
@@ -22,12 +123,13 @@ def menu_equipamentos():
 
     titulo = tk.Label(
         container,
-        text="Gerenciamento de Equipamentos",
-        font=("Segoe UI", 20, "bold"),
+        text="Gerenciamento de Equipamentos AUTOMOTIVE",
+        font=custom_font_extrabold,
         fg="#00468e",
         bg="#f4f6f9"
     )
     titulo.pack(pady=(0, 30))
+    janela.focus_force()
 
     def criar_botao(texto, comando):
         return tk.Button(
@@ -35,7 +137,7 @@ def menu_equipamentos():
             text=texto,
             width=30,
             height=2,
-            font=("Segoe UI", 13, "bold"),
+            font=custom_font,
             bg="#00468e",
             fg="white",
             activebackground="#003366",
@@ -51,31 +153,58 @@ def menu_equipamentos():
     )
     create_btn.pack(pady=10)
 
-    update_btn = criar_botao(
-        "Atualizar Equipamento",
-        lambda: atualizar_equipamento_janela(janela)
-    )
-    update_btn.pack(pady=10)
-
     delete_btn = criar_botao(
         "Excluir Equipamento",
         lambda: excluir_equipamento_janela(janela)
     )
     delete_btn.pack(pady=10)
 
+
+    listar_btn = criar_botao(
+        "Listar Equipamentos",
+        lambda: listar_equipamentos_janela(janela)
+    )
+    listar_btn.pack(pady=10)
+
+    update_btn = criar_botao(
+        "Atualizar Equipamento",
+        lambda: atualizar_equipamento_janela(janela)
+    )
+    update_btn.pack(pady=10)
+    
+    tabela_excel_btn = criar_botao(
+        "Gerar Arquivo Excel",
+        lambda: gerar_xlsx()
+    )
+    tabela_excel_btn.pack(pady=10)
+    
+    buscar_anexo_btn = criar_botao(
+        "Buscar Último Forms",
+        lambda: ler_anexo_email(janela)
+    )
+    buscar_anexo_btn.pack(pady=10)
+
+
     
 def inserir_equipamento(params):
     with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
         with conn.cursor() as cur:
             try:
-                print(params)
+                cur.execute(
+                    "SELECT id_equipamento FROM equipamentos WHERE n_serie = %s", (params[4])
+                )
+                if(cur.fetchone != None):
+                    cur.execute(
+                        "UPDATE equipamentos SET ativo = true, quantidade = quantidade + 1 WHERE id_equipamento = %s", ()
+                    )
+                    
+                    
                 cur.execute(
                     "INSERT INTO equipamentos (nome, quantidade, descricao, fabricante, n_serie, localizacao, status, categoria) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (params)   
                 )
                 cur.execute(
                     f"SELECT id_equipamento FROM equipamentos WHERE nome = %s AND n_serie = %s", (params[0], params[4])
                 )
-                gerar_log("Entrada", params[1], params[4])
                 conn.commit()
             except Exception as e:
                 return e
@@ -94,14 +223,12 @@ def inserir_equipamento_tk(params, janela, janela_pai):
         janela_pai.deiconify()
         janela.destroy() 
         
-def inserir_equipamento_api(params):
-    try:
-       inserir_equipamento(params)
-    except Exception as e:
-       with open("logs.txt", "a") as f:
-           f.write("Erro: " + e) 
-
-           
+#def inserir_equipamento_api(params):
+#   try:
+#       inserir_equipamento(params)
+#    except Exception as e:
+#       with open("logs.txt", "a") as f:
+#           f.write("Erro: " + e)        
     
 def inserir_equipamento_janela(janela_pai):
     janela_pai.withdraw()
@@ -110,6 +237,8 @@ def inserir_equipamento_janela(janela_pai):
     janela.title("Inserir Equipamento")
     janela.geometry("1000x780")
     janela.configure(bg="#f4f6f8")
+    janela.attributes('-fullscreen', True)
+    janela.bind('<Escape>', lambda event: janela.destroy())
     janela.focus_set()
 
     name_var = tk.StringVar()
@@ -123,7 +252,8 @@ def inserir_equipamento_janela(janela_pai):
     header = tk.Frame(main_frame, bg="#00468e", height=80)
     header.pack(fill="x")
 
-    img = Image.open("assets/icon.png")
+    image_path = resource_path(os.path.join("assets", "icon.png"))
+    img = Image.open(image_path)
     img = img.resize((120, 120))
     logo = ImageTk.PhotoImage(img)
     logo_label = tk.Label(header, image=logo, bg="#FFFFFF")
@@ -135,7 +265,7 @@ def inserir_equipamento_janela(janela_pai):
         text="Cadastro de Equipamento",
         bg="#00468e",
         fg="white",
-        font=("Segoe UI", 20, "bold")
+        font= custom_font_extrabold
     ).pack(pady=22)
 
     form_card = tk.Frame(
@@ -171,7 +301,7 @@ def inserir_equipamento_janela(janela_pai):
     fabr_entry = tk.Entry(form_card, textvariable=fabr_var, **entry_style)
     fabr_entry.grid(row=2, column=1, pady=12)
 
-    tk.Label(form_card, text="Nº Série:", **label_style).grid(row=3, column=0, padx=20, pady=12, sticky="e")
+    tk.Label(form_card, text="Nº Série/Nº Modelo:", **label_style).grid(row=3, column=0, padx=20, pady=12, sticky="e")
     combo_nserie = ttk.Combobox(
         form_card,
         values=["Não se aplica"],
@@ -187,7 +317,7 @@ def inserir_equipamento_janela(janela_pai):
     combo_status = ttk.Combobox(
         form_card,
         state="readonly",
-        values=["Disponível", "Emprestado", "Com Falha"],
+        values=["Disponível", "Emprestado", "Com falha", "Não testado"],
         width=35
     )
     combo_status.grid(row=5, column=1, pady=12)
@@ -202,7 +332,9 @@ def inserir_equipamento_janela(janela_pai):
             "Dispositivos de Campo",
             "Componentes elétricos e de painel",
             "Cabos",
-            "Manuais e Guias"
+            "Manuais e Guias",
+            "Equipamentos Auxiliares",
+            "Outros"
         ],
         width=35
     )
@@ -216,7 +348,7 @@ def inserir_equipamento_janela(janela_pai):
         form_card,
         width=35,
         height=7,
-        font=("Segoe UI", 10),
+        font=custom_font,
         relief="solid",
         bd=1,
         wrap="word"
@@ -226,7 +358,7 @@ def inserir_equipamento_janela(janela_pai):
     sub_btn = tk.Button(
         main_frame,
         text="Cadastrar Equipamento",
-        font=("Segoe UI", 12, "bold"),
+        font=custom_font_bold,
         bg="#00468e",
         fg="white",
         width=36,
@@ -240,7 +372,7 @@ def inserir_equipamento_janela(janela_pai):
                 qntd_entry.get(),
                 desc_text.get("1.0", "end").strip().capitalize(),
                 fabr_entry.get(),
-                None if combo_nserie.get() == "Não se aplica" else combo_nserie.get(),
+                combo_nserie.get(),
                 loc_entry.get(),
                 combo_status.get(),
                 combo_categ.get()
@@ -286,8 +418,9 @@ def excluir_equipamento(id_equipamento):
                 print(id_equipamento)
                 cur.execute(
                     f"SELECT quantidade FROM equipamentos WHERE id_equipamento = %s", (id_equipamento,)
-                )       
-                gerar_log("Retirada", cur.fetchone(), id_equipamento)
+                )
+                qntd = cur.fetchone()
+                gerar_log("Retirada", qntd, id_equipamento)
 
                 cur.execute(
                     f"UPDATE equipamentos SET ativo = FALSE WHERE id_equipamento = %s", (id_equipamento,),
@@ -301,6 +434,8 @@ def excluir_equipamento_janela(janela_pai):
     janela_pai.withdraw()
 
     janela = tk.Toplevel(janela_pai)
+    janela.attributes('-fullscreen', True)
+    janela.bind('<Escape>', lambda event: janela.destroy())
     janela.title("Excluir Equipamento")
     janela.geometry("1000x650")
     janela.configure(bg="#f4f6f8")
@@ -318,7 +453,7 @@ def excluir_equipamento_janela(janela_pai):
         text="Excluir Equipamento",
         bg="#00468e",
         fg="white",
-        font=("Segoe UI", 20, "bold")
+        font=custom_font_extrabold
     ).pack(side="left", padx=30)
 
     card = tk.Frame(
@@ -335,7 +470,7 @@ def excluir_equipamento_janela(janela_pai):
         content,
         text="Selecione um equipamento para excluir",
         bg="white",
-        font=("Segoe UI", 12, "bold")
+        font=custom_font_bold,
     ).pack(anchor="w", pady=(0, 10))
 
     table_frame = tk.Frame(content, bg="white")
@@ -359,7 +494,7 @@ def excluir_equipamento_janela(janela_pai):
     tabela.heading("nome", text="Nome")
     tabela.heading("quantidade", text="Qtd")
     tabela.heading("fabricante", text="Fabricante")
-    tabela.heading("n_serie", text="Nº Série")
+    tabela.heading("n_serie", text="Nº Série/Nº Modelo")
     tabela.heading("localizacao", text="Localização")
     tabela.heading("status", text="Status")
 
@@ -395,7 +530,7 @@ def excluir_equipamento_janela(janela_pai):
     delete_btn = tk.Button(
         actions,
         text="🗑  Excluir Equipamento",
-        font=("Segoe UI", 11, "bold"),
+        font=custom_font_bold,
         bg="#c0392b",
         fg="white",
         width=28,
@@ -407,6 +542,116 @@ def excluir_equipamento_janela(janela_pai):
         command=lambda: excluir_equipamento_tk(tabela)
     )
     delete_btn.pack(side="right")
+
+def retornar_tela(janela_pai, janela):
+    janela.withdraw()
+    janela_pai.focus_set()
+
+def listar_equipamentos_janela(janela_pai):
+    janela_pai.withdraw()
+
+    janela = tk.Toplevel(janela_pai)
+    janela.attributes('-fullscreen', True)
+    janela.bind('<Escape>', lambda event: janela.destroy())
+    janela.title("Listar Equipamentos")
+    janela.geometry("1000x650")
+    janela.configure(bg="#f4f6f8")
+    janela.focus_set()
+
+    main_frame = tk.Frame(janela, bg="#f4f6f8")
+    main_frame.pack(expand=True, fill="both")
+
+    header = tk.Frame(main_frame, bg="#00468e", height=80)
+    header.pack(fill="x")
+    header.pack_propagate(False)
+
+    tk.Label(
+        header,
+        text="Listar Equipamentos",
+        bg="#00468e",
+        fg="white",
+        font=custom_font_extrabold,
+    ).pack(side="left", padx=30)
+
+    card = tk.Frame(
+        main_frame,
+        bg="white",
+        highlightbackground="#d0d7de",
+        highlightthickness=1
+    )
+    card.pack(padx=40, pady=30, fill="both", expand=True)
+    content = tk.Frame(card, bg="white")
+    content.pack(padx=20, pady=20, fill="both", expand=True)
+
+    table_frame = tk.Frame(content, bg="white")
+    table_frame.pack(fill="both", expand=True)
+
+    scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL)
+
+    colunas = ("nome", "quantidade", "fabricante", "n_serie", "localizacao", "status")
+
+    tabela = ttk.Treeview(
+        table_frame,
+        columns=colunas,
+        show="headings",
+        yscrollcommand=scrollbar.set,
+        selectmode="browse",
+        height=12
+    )
+
+    scrollbar.config(command=tabela.yview)
+
+    tabela.heading("nome", text="Nome")
+    tabela.heading("quantidade", text="Qtd")
+    tabela.heading("fabricante", text="Fabricante")
+    tabela.heading("n_serie", text="Nº Série/Nº Modelo")
+    tabela.heading("localizacao", text="Localização")
+    tabela.heading("status", text="Status")
+
+    tabela.column("nome", width=220)
+    tabela.column("quantidade", width=60, anchor="center")
+    tabela.column("fabricante", width=160)
+    tabela.column("n_serie", width=130)
+    tabela.column("localizacao", width=120, anchor="center")
+    tabela.column("status", width=120, anchor="center")
+
+    rows = listar_equipamentos()
+    for row in rows:
+        tabela.insert(
+            "",
+            tk.END,
+            iid=row[0],
+            values=(
+                row[1],
+                row[2],
+                row[4],
+                row[5],
+                row[6],
+                row[7]
+            )
+        )
+
+    tabela.pack(side=tk.LEFT, fill="both", expand=True)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    actions = tk.Frame(content, bg="white")
+    actions.pack(fill="x", pady=15)
+
+    voltar_btn = tk.Button(
+        actions,
+        text="Voltar",
+        font=custom_font_bold,
+        bg="#c0392b",
+        fg="white",
+        width=28,
+        height=2,
+        bd=0,
+        cursor="hand2",
+        activebackground="#922b21",
+        activeforeground="white",
+        command=lambda: retornar_tela(janela_pai, janela)
+    )
+    voltar_btn.pack(side="right")
 
 def chamar_erro(erro):
     tk.messagebox.showerror(
@@ -441,6 +686,9 @@ def atualizar_equipamento(iid, categoria, janela, tabela):
      with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
         with conn.cursor() as cur:
             try:
+                if(categoria == "quantidade"):
+                    novo_nome = int(novo_nome)
+                    
                 cur.execute(
                     f"UPDATE equipamentos SET {categoria} = %s WHERE id_equipamento = %s", (novo_nome, iid)
                 )
@@ -476,6 +724,8 @@ def buscar_nome(iid, categoria):
 
 def atualizar_equipamento_tk(tabela):
     janela = tk.Toplevel(tabela)
+    janela.attributes('-fullscreen', True)
+    janela.bind('<Escape>', lambda event: janela.destroy())
     janela.title("Atualizar Equipamento")
     janela.geometry("1000x650")
     janela.configure(bg="#f1f4f9")
@@ -498,7 +748,7 @@ def atualizar_equipamento_tk(tabela):
         titulo = tk.Label(
             container,
             text="Atualizar Dados do Equipamento",
-            font=("Segoe UI", 18, "bold"),
+            font=custom_font_extrabold,
             bg="#ffffff",
             fg="#1f2937"
         )
@@ -508,7 +758,7 @@ def atualizar_equipamento_tk(tabela):
             tk.Label(
                 container,
                 text=f"{label_texto}:",
-                font=("Segoe UI", 11, "bold"),
+                font=custom_font,
                 bg="#ffffff",
                 fg="#374151",
                 width=15,
@@ -518,7 +768,7 @@ def atualizar_equipamento_tk(tabela):
             tk.Label(
                 container,
                 text=valor,
-                font=("Segoe UI", 11),
+                font=custom_font,
                 bg="#ffffff",
                 fg="#111827",
                 anchor="w",
@@ -544,7 +794,7 @@ def atualizar_equipamento_tk(tabela):
         linha("Quantidade", buscar_nome(iid, "quantidade"), 2, "quantidade")
         linha("Descrição", buscar_nome(iid, "descricao"), 3, "descricao")
         linha("Fabricante", buscar_nome(iid, "fabricante"), 4, "fabricante")
-        linha("Nº Série", buscar_nome(iid, "n_serie"), 5, "n_serie")
+        linha("Nº Série/Nº Modelo", buscar_nome(iid, "n_serie"), 5, "n_serie")
         linha("Localização", buscar_nome(iid, "localizacao"), 6, "localizacao")
 
         container.grid_rowconfigure(8, weight=1)
@@ -557,6 +807,8 @@ def atualizar_equipamento_janela(janela_pai):
     janela_pai.withdraw()
 
     janela = tk.Toplevel(janela_pai)
+    janela.attributes('-fullscreen', True)
+    janela.bind('<Escape>', lambda event: janela.destroy())
     janela.title("Atualizar Equipamento")
     janela.geometry("1000x650")
     janela.configure(bg="#f4f6f8")
@@ -574,7 +826,7 @@ def atualizar_equipamento_janela(janela_pai):
         text="Atualizar Equipamento",
         bg="#00468e",
         fg="white",
-        font=("Segoe UI", 20, "bold")
+        font=custom_font_extrabold,
     ).pack(side="left", padx=30)
 
     card = tk.Frame(
@@ -591,7 +843,7 @@ def atualizar_equipamento_janela(janela_pai):
         content,
         text="Selecione um equipamento para atualizar",
         bg="white",
-        font=("Segoe UI", 12, "bold")
+        font=custom_font_bold,
     ).pack(anchor="w", pady=(0, 10))
 
     table_frame = tk.Frame(content, bg="white")
@@ -615,7 +867,7 @@ def atualizar_equipamento_janela(janela_pai):
     tabela.heading("nome", text="Nome")
     tabela.heading("quantidade", text="Qntd")
     tabela.heading("fabricante", text="Fabricante")
-    tabela.heading("n_serie", text="Nº Série")
+    tabela.heading("n_serie", text="Nº Série/Nº Modelo")
     tabela.heading("localizacao", text="Localização")
     tabela.heading("status", text="Status")
 
@@ -650,7 +902,7 @@ def atualizar_equipamento_janela(janela_pai):
     update_btn = tk.Button(
         actions,
         text="🔃  Atualizar Equipamento",
-        font=("Segoe UI", 11, "bold"),
+        font=custom_font_bold,
         bg="#212c92",
         fg="white",
         width=28,
@@ -664,7 +916,7 @@ def atualizar_equipamento_janela(janela_pai):
     refresh_btn = tk.Button(
         actions,
         text="Refresh",
-        font=("Segoe UI", 11, "bold"),
+        font=custom_font_bold,
         bg="#212c92",
         fg="white",
         width=28,
@@ -686,15 +938,67 @@ def gerar_log(operacao, quantidade, id_equip):
         with conn.cursor() as cur:
             try:
                 cur.execute(
-                    "INSERT INTO operacoes (tipo_operacao, quantidade_op, id_funcionario, id_equipamento) VALUES (%s, %s, %s, %s)", (operacao, quantidade, 1, id_equip)
+                    "INSERT INTO operacoes (tipo_operacao, id_funcionario, id_equipamento, quantidade_op) VALUES (%s, %s, %s, %s)", (operacao, 1, id_equip, int(quantidade[0]))
                 )
                 conn.commit()
             except Exception as e:
                 print(e)
                 return e
     
-
+def gerar_xlsx():
+    from openpyxl import Workbook
+    from openpyxl.utils.dataframe import dataframe_to_rows
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+    from openpyxl.utils import get_column_letter
+    
+    sql_query = "SELECT * FROM equipamentos"
+    
+    with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
+        df = pd.read_sql_query(sql_query, con=conn)
+        wb = Workbook()
+        ws = wb.active
+        ws.cell(row=1, column=1, value="ID")
+        ws.cell(row=1, column=2, value="Nome")
+        ws.cell(row=1, column=3, value="Quantidade")
+        ws.cell(row=1, column=4, value="Descrição")
+        ws.cell(row=1, column=5, value="Fabricante")
+        ws.cell(row=1, column=6, value="Nº Série/Nº Modelo")
+        ws.cell(row=1, column=7, value="Localização")
+        ws.cell(row=1, column=8, value="Status")
+        ws.cell(row=1, column=9, value="Categoria")
+        ws.cell(row=1, column=10, value="Ativo")
+        ws.column_dimensions['B'].width = 56
+        ws.column_dimensions['C'].width = 14
+        ws.column_dimensions['D'].width = 120
+        ws.column_dimensions['E'].width = 25
+        ws.column_dimensions['F'].width = 28
+        ws.column_dimensions['G'].width = 13
+        ws.column_dimensions['H'].width = 12
+        ws.column_dimensions['I'].width = 34
+        ws.column_dimensions['J'].width = 13
+        ws.title = "Inventário WinMOD PRO"
+        
+        for r in dataframe_to_rows(df, header=False, index=False):
+            ws.append(r)
+            
+        end_cell = get_column_letter(ws.max_column) + str(ws.max_row)
+        table_ref = f"A1:{end_cell}"
+        
+        style = TableStyleInfo(name="TableStyleMedium9", showRowStripes=True)
+        table = Table(displayName="WinMOD_PRO", ref=table_ref)
+        table.tableStyleInfo = style
+        
+        ws.add_table(table)
+        
+        file_name = 'WinMOD PRO - Inventário.xlsx'
+        wb.save(file_name) 
+    
 root = tk.Tk()
+custom_font = Font(file="fonts/Barlow-Black.ttf", family="Barlow", size=12)
+custom_font_bold = Font(file="fonts/Barlow-Bold.ttf", family="Barlow", size=15)
+custom_font_extrabold = Font(file="fonts/Barlow-ExtraBold.ttf", family="Barlow", size=20)
+root.attributes('-fullscreen', True)
+root.bind('<Escape>', lambda event: root.destroy())
 root.title("Sistema de Controle")
 root.geometry("900x600")
 root.configure(bg="#f4f6f8")
@@ -706,7 +1010,8 @@ header = tk.Frame(main_frame, bg="#00468e", height=90)
 header.pack(fill="x")
 
 header.pack_propagate(False)
-img = Image.open("assets/icon.png")
+image_path = resource_path(os.path.join("assets", "icon.png"))
+img = Image.open(image_path)
 img = img.resize((120, 120))
 logo = ImageTk.PhotoImage(img)
 logo_label = tk.Label(header, image=logo, bg="#FFFFFF")
@@ -718,7 +1023,7 @@ title = tk.Label(
     text="Controle WinMOD PRO",
     bg="#00468e",
     fg="white",
-    font=("Segoe UI", 22, "bold")
+    font=custom_font_extrabold,
 )
 title.pack(side="left", padx=30)
 
@@ -737,14 +1042,14 @@ subtitle = tk.Label(
     card_content,
     text="Menu Principal",
     bg="white",
-    font=("Segoe UI", 16, "bold")
+    font=custom_font_bold,
 )
 subtitle.pack(pady=(0, 30))
 
 sub_btn = tk.Button(
     card_content,
     text="⚙️  Menu de Equipamentos",
-    font=("Segoe UI", 14, "bold"),
+    font=custom_font_bold,
     bg="#00468e",
     fg="white",
     width=28,
@@ -762,7 +1067,7 @@ footer = tk.Label(
     text="© Sistema Interno • Controle WinMOD PRO",
     bg="#f4f6f8",
     fg="#6b7280",
-    font=("Segoe UI", 9)
+    font=custom_font
 )
 footer.pack(side="bottom", pady=10)
 

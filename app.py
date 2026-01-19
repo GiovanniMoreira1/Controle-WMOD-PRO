@@ -10,50 +10,97 @@ import email
 import json
 from imaplib import IMAP4_SSL
 from tkextrafont import Font
+from redmail import EmailSender
+from pathlib import Path
 
+def enviar_email_erro(erro):
+    print("Erro")
+    email = EmailSender(host="smtp.gmail.com", port=587)
+    
+    email.username = EMAIL
+    email.password = EMAIL_PASSWORD
+    email.send(
+        subject="Sem Sucesso",
+        receivers=[EMAIL_ENVIO],
+        text=f"Ocorreu um erro ao processar sua solicitação. Erro {erro}"
+    )
+    
+def enviar_email_sucesso():
+    print("Sucesso")
+    email = EmailSender(host="smtp.gmail.com", port=587)
+    email.username = EMAIL
+    email.password = EMAIL_PASSWORD
+    email.send(
+        subject="Sucesso",
+        receivers=[EMAIL_ENVIO],
+        attachments={'WinMOD PRO - Inventário.xlsx':Path('WinMOD PRO - Inventário.xlsx')}
+    )
+    
+    print()
+    
 def alteracao_bd_json(janela):
-    print("1")
     with open('dados.json', 'r', encoding='utf-8-sig') as f:
         data = json.load(f)
         
     df = pd.DataFrame([data])
-    print(df['operacao'][0])
-    print(df['nome_equipamento'][0])
-    print("2")
     
-    print(df['nome_armario'][0])
-    print(df['quantidade'][0])
-    print(df['setor_funcionario'][0])
     if(df['operacao'][0] == "Entrada/Devolução"): # caso da operação ser entrada
-        print("3")
         print("Entrada/devolução")
-        params = (df['nome_equipamento'][0], int(df['quantidade'][0]), '', '', '', df['nome_armario'][0], "Disponível", "Ativo")
+        params = (df['nome_equipamento'][0], int(df['quantidade'][0]), '', '', '', df['nome_armario'][0], "Disponível", df['categoria'][0])
         with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
             with conn.cursor() as cur:
                 try: 
-                    print("4")
                     cur.execute(
                         "INSERT INTO equipamentos (nome, quantidade, descricao, fabricante, n_serie, localizacao, status, categoria) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (params)   
                     )
                     conn.commit()
                 except Exception as e:
-                    print(e)
+                    enviar_email_erro(e)
                     tk.messagebox.showwarning("Warning", f"Produto não inserido. Erro: {e}", parent=janela)
                     return
-        print("5")
+                
+        gerar_xlsx()
+        enviar_email_sucesso()
         messagebox.showinfo("Sucesso!", "Produto cadastrado com sucesso!")
         return
         
-    elif(df['operacao'][0] == "Entrada/Devolução"): # caso da operação ser retirada
-        print("entrada")
+    elif(df['operacao'][0] == "Retirada"): # caso da operação ser retirada
+        print("retirada")
+        with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
+            with conn.cursor() as cur:
+                try: 
+                    cur.execute(
+                        "SELECT quantidade FROM equipamentos WHERE id_equipamento = %s", df['id_equipamento'][0]  # query para pegar a quantidade disponivel no bd
+                    )
+                    quantidade_bd = cur.fetchone()
+                    
+                    if quantidade_bd == df['quantidade'][0]: # caso 1: quantidade do equipamento no banco de dados ser exatamente a mesma da solicitada para retirada
+                        cur.execute(
+                            "UPDATE equipamentos SET ativo = true WHERE id_equipamento = %s", df['id_equipamento'][0] 
+                        )
+                    elif quantidade_bd < df['quantidade'][0]: # caso 2: quantidade do equipamento no banco de dados ser insuficiente se comparada com a solicitada para retirada
+                        raise Exception
+                    elif quantidade_bd > df['quantidade'][0]: # caso 3: quantidade do equipamento no banco de dados ser maior que a solicitada para retirada
+                        cur.execute(
+                            "UPDATE equipamento SET quantidade = quantidade + 1"
+                        )
+                    
+                    conn.commit()
+                except Exception as e:
+                    enviar_email_erro(e)
+                    tk.messagebox.showerror("Erro", f"Operação não concluída. Erro: {e}", parent=janela)
+                    return
+                
+        gerar_xlsx()
+        enviar_email_sucesso()
+        messagebox.showinfo("Sucesso!", "Produto retirado com sucesso!")
+        return
         
     elif(df['operacao'][0] == "Empréstimo"): # caso da operação ser empréstimo
         print("emprestimo")
-        
-    else:
-        print("6")
     
 def ler_anexo_email(janela):
+    
     mail = IMAP4_SSL('imap.gmail.com')
     mail.login(EMAIL, EMAIL_PASSWORD)
     mail.select('inbox')
@@ -951,7 +998,7 @@ def gerar_xlsx():
     from openpyxl.worksheet.table import Table, TableStyleInfo
     from openpyxl.utils import get_column_letter
     
-    sql_query = "SELECT * FROM equipamentos"
+    sql_query = "SELECT * FROM equipamentos WHERE ativo = true"
     
     with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
         df = pd.read_sql_query(sql_query, con=conn)

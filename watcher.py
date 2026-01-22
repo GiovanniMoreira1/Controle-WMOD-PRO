@@ -2,12 +2,61 @@ from credentials import DB_PASSWORD, DB_USER, EMAIL, EMAIL_PASSWORD, EMAIL_ENVIO
 import psycopg
 import pandas as pd
 import os
+import time
 import email
 import json
 import imaplib
 from redmail import EmailSender
+from imap_tools import MailBox
 from pathlib import Path
-from app import gerar_xlsx
+
+def gerar_xlsx():
+    from openpyxl import Workbook
+    from openpyxl.utils.dataframe import dataframe_to_rows
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+    from openpyxl.utils import get_column_letter
+    
+    sql_query = "SELECT * FROM equipamentos WHERE ativo = true"
+    
+    with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
+        df = pd.read_sql_query(sql_query, con=conn)
+        wb = Workbook()
+        ws = wb.active
+        ws.cell(row=1, column=1, value="ID")
+        ws.cell(row=1, column=2, value="Nome")
+        ws.cell(row=1, column=3, value="Quantidade")
+        ws.cell(row=1, column=4, value="Descrição")
+        ws.cell(row=1, column=5, value="Fabricante")
+        ws.cell(row=1, column=6, value="Nº Série/Nº Modelo")
+        ws.cell(row=1, column=7, value="Localização")
+        ws.cell(row=1, column=8, value="Status")
+        ws.cell(row=1, column=9, value="Categoria")
+        ws.cell(row=1, column=10, value="Ativo")
+        ws.column_dimensions['B'].width = 56
+        ws.column_dimensions['C'].width = 14
+        ws.column_dimensions['D'].width = 120
+        ws.column_dimensions['E'].width = 25
+        ws.column_dimensions['F'].width = 28
+        ws.column_dimensions['G'].width = 13
+        ws.column_dimensions['H'].width = 12
+        ws.column_dimensions['I'].width = 34
+        ws.column_dimensions['J'].width = 13
+        ws.title = "Inventário WinMOD PRO"
+        
+        for r in dataframe_to_rows(df, header=False, index=False):
+            ws.append(r)
+            
+        end_cell = get_column_letter(ws.max_column) + str(ws.max_row)
+        table_ref = f"A1:{end_cell}"
+        
+        style = TableStyleInfo(name="TableStyleMedium9", showRowStripes=True)
+        table = Table(displayName="WinMOD_PRO", ref=table_ref)
+        table.tableStyleInfo = style
+        
+        ws.add_table(table)
+        
+        file_name = 'WinMOD PRO - Inventário.xlsx'
+        wb.save(file_name) 
 
 def alteracao_bd_json():
     with open('dados.json', 'r', encoding='utf-8-sig') as f:
@@ -29,7 +78,17 @@ def alteracao_bd_json():
             return
     
     if(df['operacao'][0] == "Entrada/Devolução"): # caso da operação ser entrada
-        print("Entrada/devolução")
+        print(f"""
+            =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+              Operação: Entrada/Devolução
+              
+              Nome: {df['nome_funcionario'][0]}
+              E-mail: {df['email_funcionario'][0]}
+              Equipamento: {df['nome_equipamento'][0]}
+              Quantidade: {df['quantidade'][0]}
+              Armário: {df['nome_armario'][0]}
+            =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+              """)
         if(not nome_ja_cadastrado(df["nome_equipamento"][0])):
             params = (df['nome_equipamento'][0], int(df['quantidade'][0]), '', '', '', df['nome_armario'][0], "Disponível", df['categoria'][0])
             try: 
@@ -51,29 +110,60 @@ def alteracao_bd_json():
                                 "UPDATE equipamentos SET quantidade = quantidade + %s WHERE nome = %s", (int(df['quantidade'][0]), df['nome_equipamento'][0])
                             )
             except Exception as e:
-                print("erro 2")
                 enviar_email_erro(e, df['email_funcionario'][0])
                 return
+        
+    elif(df['operacao'][0] == "Retirada"): # caso da operação ser retirada
+        print(f"""
+            =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+              Operação: Retirada
+              
+              Nome: {df['nome_funcionario'][0]}
+              E-mail: {df['email_funcionario'][0]}
+              Equipamento: {df['nome_equipamento'][0]}
+              Quantidade: {df['quantidade'][0]}
+              Armário: {df['nome_armario'][0]}
+            =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+              """)
+        try: 
+            with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT quantidade FROM equipamentos WHERE id_equipamento = %s", df['id_equipamento'][0]  # query para pegar a quantidade disponivel no bd
+                    )
+                    quantidade_bd = cur.fetchone()
                     
+                    if quantidade_bd == df['quantidade'][0]: # caso 1: quantidade do equipamento no banco de dados ser exatamente a mesma da solicitada para retirada
+                        cur.execute(
+                            "UPDATE equipamentos SET ativo = true WHERE id_equipamento = %s", df['id_equipamento'][0] 
+                        )
+                    elif quantidade_bd < df['quantidade'][0]: # caso 2: quantidade do equipamento no banco de dados ser insuficiente se comparada com a solicitada para retirada
+                        raise Exception
+                    elif quantidade_bd > df['quantidade'][0]: # caso 3: quantidade do equipamento no banco de dados ser maior que a solicitada para retirada
+                        cur.execute(
+                            "UPDATE equipamento SET quantidade = quantidade - %s", (df["quantidade"][0],)
+                        )
+                        
+        except Exception as e:
+            enviar_email_erro(e, df['email_funcionario'][0])
+            return
+            
         gerar_xlsx()
         enviar_email_sucesso(df['operacao'][0], df['nome_equipamento'][0], df['email_funcionario'][0])
         insert_operacao_bd(df['email_funcionario'][0], df['operacao'][0], df['quantidade'][0], df['id_equipamento']) 
         return
     
 def esperar_email():
-    with imaplib.IMAP4_SSL('imap.gmail.com') as mail:
-        mail.login(EMAIL, EMAIL_PASSWORD)
-        mail.select('inbox')
+    with MailBox('imap.gmail.com').login(EMAIL, EMAIL_PASSWORD) as mailbox:
+        print("Aguardando e-mail...")
+        responses = mailbox.idle.wait(timeout=600) # entra em modo idle (aguarda qualquer e-mail novo)
         
-        print("Esperando email")
-        
-        with mail.idle() as idler:
-            for response in idler:
-                if b'EXISTS' in response:
-                    print("Email novo chegou")
-                    break
-                
-    ler_anexo()
+        if responses:
+            for resp in responses:
+                if 'EXISTS' in str(resp): # recebe qualquer e-mail
+                    print("Novo e-mail chegou!")
+                    ler_anexo()
+
 
 def ler_anexo():
     mail = imaplib.IMAP4_SSL('imap.gmail.com')
@@ -154,7 +244,7 @@ def insert_operacao_bd(email, operacao, quantidade, id_equip):
                         "SELECT id_equipamento FROM equipamentos ORDER BY id_equipamento DESC LIMIT 1"
                     )
                     id_equip = cur.fetchone()[0]
-                
+                    
                 cur.execute(
                     "SELECT id_funcionario FROM funcionarios WHERE email = %s", (email,)
                 )
@@ -163,6 +253,7 @@ def insert_operacao_bd(email, operacao, quantidade, id_equip):
                 cur.execute(
                     "INSERT INTO operacoes (tipo_operacao, id_funcionario, id_equipamento, quantidade_op) VALUES (%s, %s, %s, %s)", (operacao, id_func, id_equip, quantidade)
                 )
+                
     
     except Exception as e:
         print("erro 10")
@@ -199,5 +290,9 @@ def enviar_email_sucesso(operacao, equipamento, email_user): #  envia e-mail par
     )
 
 
-if __name__ == "__main__":
-    esperar_email()
+while True:
+    if esperar_email():
+        print("Processando anexo")
+        ler_anexo()
+        
+    time.sleep(1)

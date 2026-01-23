@@ -1,288 +1,12 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
-from credentials import DB_PASSWORD, DB_USER, EMAIL, EMAIL_PASSWORD, EMAIL_ENVIO
+from credentials import DB_PASSWORD, DB_USER
 from PIL import Image, ImageTk
 import psycopg
 import pandas as pd
 import sys
 import os
-import email
-import json
-from imaplib import IMAP4_SSL
 from tkextrafont import Font
-from redmail import EmailSender
-from pathlib import Path
-
-"""
-def esperar_email():
-    with IMAP4_SSL('imap.gmail.com') as mail:
-        mail.login(EMAIL, EMAIL_PASSWORD)
-        mail.select('inbox')
-        
-        print("Esperando email")
-        
-        with mail.idle() as idler:
-            for response in idler:
-                if b'EXISTS' in response:
-                    print("Email novo chegou")
-                    break
-                
-    ler_anexo()
-
-def ler_anexo():
-    mail = IMAP4_SSL('imap.gmail.com')
-    mail.login(EMAIL, EMAIL_PASSWORD)
-    mail.select('inbox')
-    
-    criterio_busca = f"UNSEEN FROM {EMAIL_ENVIO}"
-    status, data = mail.search(None, criterio_busca)
-    
-    email_ids = data[0].split()
-    
-    for email_id in email_ids: # separa os emails em IDs
-        status, msg_data = mail.fetch(email_id, '(RFC822)')
-        for response_part in msg_data:
-            if(isinstance(response_part, tuple)):
-                msg = email.message_from_bytes(response_part[1])
-            
-            for part in msg.walk():
-                if(part.get_content_maintype == "multipart"):
-                    continue
-                if(part.get_content_disposition is None):
-                    continue
-                
-                filename = part.get_filename()
-                if filename:
-                    filepath = os.path.join(os.getcwd(), filename)
-                    with open(filepath, "wb") as f:
-                        f.write(part.get_payload(decode=True))
-                        
-    mail.close()
-    mail.logout()
-    
-    alteracao_bd_json()
-
-def esta_cadastrado(email):
-    try:
-        with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT id_funcionario FROM funcionarios WHERE email = %s", (email,) # busca o id que esta cadastrado com o email
-                )    
-                conn.commit()
-                if(cur.fetchone() == None):
-                    return False
-                else:
-                    return True
-    except Exception as e:
-        print("erro 4")
-        print(email)
-        print(e)
-        return
-            
-def nome_ja_cadastrado(nome):
-    try:
-        with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
-            with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT id_equipamento FROM equipamentos WHERE nome = %s", (nome,) # busca o id que esta cadastrado com o email
-                    )    
-                    conn.commit()
-                    if(cur.fetchone() == None):
-                        return False
-                    else:
-                        return True
-    except Exception as e:
-        print("erro 3")
-        print(nome)
-        print(e)
-        return
-
-def insert_operacao_bd(email, operacao, quantidade, id_equip):
-    try:
-        with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
-            with conn.cursor() as cur:
-                if(operacao == "Entrada/Devolução"):
-                    operacao = "Entrada"
-                    cur.execute(
-                        "SELECT id_equipamento FROM equipamentos ORDER BY id_equipamento DESC LIMIT 1"
-                    )
-                    id_equip = cur.fetchone()[0]
-                
-                cur.execute(
-                    "SELECT id_funcionario FROM funcionarios WHERE email = %s", (email,)
-                )
-                id_func = cur.fetchone()[0]
-                
-                cur.execute(
-                    "INSERT INTO operacoes (tipo_operacao, id_funcionario, id_equipamento, quantidade_op) VALUES (%s, %s, %s, %s)", (operacao, id_func, id_equip, quantidade)
-                )
-    
-    except Exception as e:
-        print("erro 10")
-        print(e)
-        return
-
-def enviar_email_erro(erro, email_user): # envia e-mail para user detalhando o erro causado no processo
-    print("Enviando Email: Erro")
-    email = EmailSender(host="smtp.gmail.com", port=587)
-    
-    email.username = EMAIL
-    email.password = EMAIL_PASSWORD
-    email.send(
-        receivers=[email_user],
-        subject="Sem Sucesso",
-        text=f"Ocorreu um erro ao processar sua solicitação. Erro {erro}"
-    )
-    
-def enviar_email_sucesso(operacao, equipamento, email_user): #  envia e-mail para user de confirmação
-    print("Enviando email: Sucesso")
-    email = EmailSender(host="smtp.gmail.com", port=587)
-    email.username = EMAIL
-    email.password = EMAIL_PASSWORD
-    email.send( # email com anexo do arquivo do inventario
-        receivers=[EMAIL_ENVIO],
-        subject="Sucesso",
-        attachments={'WinMOD PRO - Inventário.xlsx':Path('WinMOD PRO - Inventário.xlsx')}
-    )
-    
-    email.send( # email p/ user
-        subject=f"Pedido concluído | WinMOD PRO",
-        receivers=[email_user],
-        text=f"Seu pedido de {operacao} do equipamento {equipamento} foi devidamente concluído."
-    )
-    
- 
-        
-    elif(df['operacao'][0] == "Retirada"): # caso da operação ser retirada
-        print("retirada")
-        try: 
-            with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT quantidade FROM equipamentos WHERE id_equipamento = %s", df['id_equipamento'][0]  # query para pegar a quantidade disponivel no bd
-                    )
-                    quantidade_bd = cur.fetchone()
-                    
-                    if quantidade_bd == df['quantidade'][0]: # caso 1: quantidade do equipamento no banco de dados ser exatamente a mesma da solicitada para retirada
-                        cur.execute(
-                            "UPDATE equipamentos SET ativo = true WHERE id_equipamento = %s", df['id_equipamento'][0] 
-                        )
-                    elif quantidade_bd < df['quantidade'][0]: # caso 2: quantidade do equipamento no banco de dados ser insuficiente se comparada com a solicitada para retirada
-                        raise Exception
-                    elif quantidade_bd > df['quantidade'][0]: # caso 3: quantidade do equipamento no banco de dados ser maior que a solicitada para retirada
-                        cur.execute(
-                            "UPDATE equipamento SET quantidade = quantidade - %s", (df["quantidade"][0],)
-                        )
-                
-        except Exception as e:
-            enviar_email_erro(e, df['email_funcionario'][0])
-            tk.messagebox.showerror("Erro", f"Operação não concluída. Erro: {e}")
-            return
-                
-        gerar_xlsx()
-        enviar_email_sucesso(df['operacao'][0], df['nome_equipamento'][0], df['email_funcionario'][0])
-        insert_operacao_bd(df['email_funcionario'][0], df['operacao'][0], df['quantidade'][0], df['id_equipamento']) 
-        messagebox.showinfo("Sucesso!", "Produto retirado com sucesso!")
-        return
-        
-    elif(df['operacao'][0] == "Empréstimo"): # caso da operação ser empréstimo
-        print("emprestimo")
-   
-
-def alteracao_bd_json(janela):
-    with open('dados.json', 'r', encoding='utf-8-sig') as f:
-        data = json.load(f)
-        
-    df = pd.DataFrame([data]) # cria um dataframe com os dados que vierem do email (forms -> email -> python)
-    
-    if(not esta_cadastrado(df['email_funcionario'][0])): # chama função com valor do e-mail presente no forms
-        try: 
-            with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
-                with conn.cursor() as cur:
-                        cur.execute(
-                            "INSERT INTO funcionarios (nome, email) VALUES (%s, %s)", (df['nome_funcionario'][0], df['email_funcionario'][0]) # insere o funcionario no banco de dados
-                        )
-                        conn.commit()
-                        
-        except Exception as e:
-            print(f"Erro ao cadastrar user no banco de dados. Erro: {e}")
-            return
-    
-    if(df['operacao'][0] == "Entrada/Devolução"): # caso da operação ser entrada
-        print("Entrada/devolução")
-        if(not nome_ja_cadastrado(df["nome_equipamento"][0])):
-            params = (df['nome_equipamento'][0], int(df['quantidade'][0]), '', '', '', df['nome_armario'][0], "Disponível", df['categoria'][0])
-            try: 
-                with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
-                    with conn.cursor() as cur:
-                            cur.execute(
-                                "INSERT INTO equipamentos (nome, quantidade, descricao, fabricante, n_serie, localizacao, status, categoria) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (params)   
-                            )
-            except Exception as e:
-                print("erro 1")
-                enviar_email_erro(e, df['email_funcionario'][0])
-                tk.messagebox.showwarning("Warning", f"Produto não inserido. Erro: {e}")
-                return
-                    
-        else:
-            try: 
-                with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
-                    with conn.cursor() as cur:
-                            cur.execute(
-                                "UPDATE equipamentos SET quantidade = quantidade + %s WHERE nome = %s", (int(df['quantidade'][0]), df['nome_equipamento'][0])
-                            )
-            except Exception as e:
-                print("erro 2")
-                enviar_email_erro(e, df['email_funcionario'][0])
-                tk.messagebox.showwarning("Warning", f"Produto não inserido. Erro: {e}")
-                return
-                    
-        gerar_xlsx()
-        enviar_email_sucesso(df['operacao'][0], df['nome_equipamento'][0], df['email_funcionario'][0])
-        insert_operacao_bd(df['email_funcionario'][0], df['operacao'][0], df['quantidade'][0], df['id_equipamento']) 
-        messagebox.showinfo("Sucesso!", "Produto cadastrado com sucesso!")
-        return
-def ler_anexo_email(janela):
-    
-    mail = IMAP4_SSL('imap.gmail.com')
-    mail.login(EMAIL, EMAIL_PASSWORD)
-    mail.select('inbox')
-    
-    criterio_busca = f"UNSEEN FROM {EMAIL_ENVIO}"
-    status, data = mail.search(None, criterio_busca)
-    
-    while(data[0] == b""):
-        print("sem e-mails disponíveis")
-        tk.messagebox.showwarning("Warning", "Nenhum e-mail disponível para leitura!", parent=janela)
-        return
-    
-    email_ids = data[0].split()
-    
-    for email_id in email_ids: # separa os emails em IDs
-        status, msg_data = mail.fetch(email_id, '(RFC822)')
-        for response_part in msg_data:
-            if(isinstance(response_part, tuple)):
-                msg = email.message_from_bytes(response_part[1])
-            
-            for part in msg.walk():
-                if(part.get_content_maintype == "multipart"):
-                    continue
-                if(part.get_content_disposition is None):
-                    continue
-                
-                filename = part.get_filename()
-                if filename:
-                    filepath = os.path.join(os.getcwd(), filename)
-                    with open(filepath, "wb") as f:
-                        f.write(part.get_payload(decode=True))
-                        
-    mail.close()
-    mail.logout()
-    
-    alteracao_bd_json(janela)
-
-"""
 
 def resource_path(relative_path): # solução encontrada para erro do PyInstaller não encontrar a imagem no caminhop
     try:
@@ -375,23 +99,32 @@ def inserir_equipamento(params):
     with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
         with conn.cursor() as cur:
             try:
+                print("1")
                 cur.execute(
-                    "SELECT id_equipamento FROM equipamentos WHERE n_serie = %s", (params[4])
+                    "SELECT id_equipamento FROM equipamentos WHERE n_serie = %s", (params[4],)
                 )
-                if(cur.fetchone != None):
+                print("2")
+                id_equip = cur.fetchone()[0]
+                if(id_equip != None):
+                    print(id_equip)
+                    print(params[1])
                     cur.execute(
-                        "UPDATE equipamentos SET ativo = true, quantidade = quantidade + 1 WHERE id_equipamento = %s", ()
+                        "UPDATE equipamentos SET ativo = true, quantidade = quantidade + %s WHERE id_equipamento = %s", (params[1], id_equip,)
                     )
+                    print("3")
                     
                     
                 cur.execute(
                     "INSERT INTO equipamentos (nome, quantidade, descricao, fabricante, n_serie, localizacao, status, categoria) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (params)   
                 )
+                print("4")
                 cur.execute(
                     f"SELECT id_equipamento FROM equipamentos WHERE nome = %s AND n_serie = %s", (params[0], params[4])
                 )
+                print("5")
                 conn.commit()
             except Exception as e:
+                print(e)
                 return e
         
 def inserir_equipamento_tk(params, janela, janela_pai):
@@ -407,14 +140,7 @@ def inserir_equipamento_tk(params, janela, janela_pai):
             messagebox.showinfo("Sucesso!", "Produto cadastrado com sucesso!")
         janela_pai.deiconify()
         janela.destroy() 
-        
-#def inserir_equipamento_api(params):
-#   try:
-#       inserir_equipamento(params)
-#    except Exception as e:
-#       with open("logs.txt", "a") as f:
-#           f.write("Erro: " + e)        
-    
+       
 def inserir_equipamento_janela(janela_pai):
     janela_pai.withdraw()
 
@@ -554,11 +280,11 @@ def inserir_equipamento_janela(janela_pai):
         command=lambda: inserir_equipamento_tk(
             (
                 name_entry.get().capitalize(),
-                qntd_entry.get(),
+                int(qntd_entry.get()),
                 desc_text.get("1.0", "end").strip().capitalize(),
-                fabr_entry.get(),
+                fabr_entry.get().capitalize(),
                 combo_nserie.get(),
-                loc_entry.get(),
+                loc_entry.get().capitalize(),
                 combo_status.get(),
                 combo_categ.get()
             ),
@@ -1162,8 +888,8 @@ def gerar_xlsx():
         ws.column_dimensions['J'].width = 13
         ws.title = "Inventário WinMOD PRO"
         
-        for r in dataframe_to_rows(df, header=False, index=False):
-            ws.append(r)
+        for row in df.values.tolist():
+            ws.append(row)
             
         end_cell = get_column_letter(ws.max_column) + str(ws.max_row)
         table_ref = f"A1:{end_cell}"

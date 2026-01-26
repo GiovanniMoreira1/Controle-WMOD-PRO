@@ -28,7 +28,22 @@ def gerar_xlsx_emprestimos():
         df_operacoes = pd.read_sql_query("SELECT id_equipamento, nome, categoria FROM equipamentos WHERE status = 'Emprestado'", con=conn)
         df_funcionarios = pd.read_sql_query(sql_query, con=conn)
         
-        df_final = pd.concat([df_funcionarios, df_operacoes, df_emprestimos], axis=1)
+        df_emprestimos = df_emprestimos.reset_index(drop=True)
+        df_operacoes = df_operacoes.reset_index(drop=True)
+        df_funcionarios = df_funcionarios.reset_index(drop=True)
+        
+        print(df_operacoes)
+        
+        print("""
+              
+              
+        --=-=--=-=-=---=-=-=-=
+              
+              
+              """)
+        
+        df_final = pd.concat([df_operacoes, df_funcionarios, df_emprestimos], axis=1)
+        print(df_final)
         
         wb = Workbook()
         ws = wb.active
@@ -54,7 +69,8 @@ def gerar_xlsx_emprestimos():
         for r in dataframe_to_rows(df_final, header=False, index=False):
             ws.append(r)
                     
-        end_cell = get_column_letter(ws.max_column) + str(ws.max_row)
+        end_cell = get_column_letter(ws.max_column) + str(ws.max_row) # pega a ultima coluna e linha possível para criar a tabela no tamanho certo
+    
         table_ref = f"A1:{end_cell}"
         
         style = TableStyleInfo(name="TableStyleMedium9", showRowStripes=True)
@@ -227,27 +243,23 @@ def alteracao_bd_json():
                     if quantidade_bd >= quantidade_forms:
                         if quantidade_bd == quantidade_forms: # caso 1: quantidade do equipamento no banco de dados ser exatamente a mesma da solicitada para emprestimo
                             cur.execute(
-                                "UPDATE equipamentos SET status = %s, ativo = false WHERE id_equipamento = %s", (string_sql, df['id_equipamento'][0],) 
+                                "UPDATE equipamentos SET status = %s WHERE id_equipamento = %s", (string_sql, df['id_equipamento'][0],) 
                             )
                             
                         else: # caso 2: quantidade do equipamento no banco de dados ser maior que a solicitada para emprestimo
                             cur.execute( # update na quantidade 
-                                "UPDATE equipamentos SET quantidade = quantidade - %s", (quantidade_forms,)
+                                "UPDATE equipamentos SET quantidade = quantidade - %s WHERE id_equipamento = %s", (quantidade_forms, df['id_equipamento'][0])
                             )
-                        print("teste")
-                        print(df['nome_funcionario'][0])
-                        print(df['email_funcionario'][0])
+
                         cur.execute( # resgatar ID do funcionário
                             "SELECT id_funcionario FROM funcionarios WHERE email = %s", (df['email_funcionario'][0],)
                         )
                         id_func = cur.fetchone()[0]
-                        print(f"2 - {id_func}")
                                                 
                         parametros = (id_func, df['id_equipamento'][0], df['data_retorno'][0], quantidade_forms, 'Emprestado')      
                         cur.execute( 
                             "INSERT INTO emprestimos (id_funcionario, id_equipamento, data_retorno, quantidade, status_atual) VALUES (%s, %s, %s, %s, %s)", parametros 
                         )
-                        print(f"3 - {parametros}")
                         
                             
                     else: # caso 3: quantidade do equipamento no banco de dados ser insuficiente se comparada com a solicitada para retirada (erro)
@@ -331,31 +343,33 @@ def nome_ja_cadastrado(nome):
         with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
             with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT id_equipamento FROM equipamentos WHERE nome = %s", (nome,) # busca o id que esta cadastrado com o email
+                        "SELECT id_equipamento FROM equipamentos WHERE nome = %s", (nome.capitalize(),) # busca o id que esta cadastrado com o email
                     )    
                     conn.commit()
+                    
                     if(cur.fetchone() == None):
                         return False
                     else:
                         return True
+                    
     except Exception as e:
         print("erro 3")
         print(nome)
         print(e)
         return
 
-def insert_operacao_bd(email, operacao, quantidade, id_equip):
+def insert_operacao_bd(email, operacao, quantidade, id_equip): # função responsavel por inserir as operações na sua respectiva tabela
     try:
         with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
             with conn.cursor() as cur:
                 if(operacao == "Entrada/Devolução"):
                     operacao = "Entrada"
-                    cur.execute(
+                    cur.execute( # pega o primeiro valor dos IDs na ordem decrescente (último item adicionado)
                         "SELECT id_equipamento FROM equipamentos ORDER BY id_equipamento DESC LIMIT 1"
                     )
                     id_equip = cur.fetchone()[0]
                     
-                cur.execute(
+                cur.execute( # busca o ID do funcionário pelo seu e-mail
                     "SELECT id_funcionario FROM funcionarios WHERE email = %s", (email,)
                 )
                 id_func = cur.fetchone()[0]
@@ -412,6 +426,7 @@ def enviar_email_sucesso_emprestimo(operacao, equipamento, email_user): #  envia
 
 
 while True:
+    gerar_xlsx_emprestimos()
     if esperar_email():
         print("Processando anexo")
         ler_anexo()

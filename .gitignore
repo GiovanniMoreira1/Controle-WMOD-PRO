@@ -207,3 +207,4 @@ marimo/_lsp/
 __marimo__/
 
 credentials.py
+app/credential_app.py

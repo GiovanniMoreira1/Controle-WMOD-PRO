@@ -145,10 +145,10 @@ def alteracao_bd_json():
             print(f"Erro ao cadastrar user no banco de dados. Erro: {e}")
             return
     
-    if(df['operacao'][0] == "Entrada/Devolução"): # caso da operação ser entrada
+    if(df['operacao'][0] == "Entrada"): # caso da operação ser entrada
         print(f"""
             =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-              Operação: Entrada/Devolução
+              Operação: Entrada
               
               Nome: {df['nome_funcionario'][0]}
               E-mail: {df['email_funcionario'][0]}
@@ -158,6 +158,46 @@ def alteracao_bd_json():
             =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
               """)
         if(not nome_ja_cadastrado(df["nome_equipamento"][0])):
+            print("nome nao cadastrado")
+            print(df['nome_equipamento'][0])
+            params = (df['nome_equipamento'][0], int(df['quantidade'][0]), '', '', '', df['nome_armario'][0], "Disponível", df['categoria'][0])
+            try: 
+                with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
+                    with conn.cursor() as cur:
+                            cur.execute(
+                                "INSERT INTO equipamentos (nome, quantidade, descricao, fabricante, n_serie, localizacao, status, categoria) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (params)   
+                            )
+            except Exception as e:
+                print("erro 1")
+                enviar_email_erro(e, df['email_funcionario'][0])
+                return
+                    
+        else:
+            print("nome cadastrado")
+            print(df['nome_equipamento'][0])
+            try: 
+                with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
+                    with conn.cursor() as cur:
+                            cur.execute(
+                                "UPDATE equipamentos SET quantidade = quantidade + %s WHERE nome = %s", (int(df['quantidade'][0]), df['nome_equipamento'][0])
+                            )
+            except Exception as e:
+                enviar_email_erro(e, df['email_funcionario'][0])
+                return
+            
+    elif(df['operacao'][0] == "Devolução"): # caso da operação ser entrada
+        print(f"""
+            =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+              Operação: Devolução
+              
+              Nome: {df['nome_funcionario'][0]}
+              E-mail: {df['email_funcionario'][0]}
+              Equipamento: {df['nome_equipamento'][0]}
+              Quantidade: {df['quantidade'][0]}
+              Armário: {df['nome_armario'][0]}
+            =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+              """)
+        if(not nome_ja_cadastrado(df['nome_equipamento'][0])):
             params = (df['nome_equipamento'][0], int(df['quantidade'][0]), '', '', '', df['nome_armario'][0], "Disponível", df['categoria'][0])
             try: 
                 with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
@@ -180,6 +220,7 @@ def alteracao_bd_json():
             except Exception as e:
                 enviar_email_erro(e, df['email_funcionario'][0])
                 return
+            
         
     elif(df['operacao'][0] == "Retirada"): # caso da operação ser retirada
         print(f"""
@@ -197,19 +238,19 @@ def alteracao_bd_json():
             with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT quantidade FROM equipamentos WHERE id_equipamento = %s", df['id_equipamento'][0]  # query para pegar a quantidade disponivel no bd
+                        "SELECT quantidade FROM equipamentos WHERE id_equipamento = %s", (df['id_equipamento'][0],)  # query para pegar a quantidade disponivel no bd
                     )
-                    quantidade_bd = cur.fetchone()
+                    quantidade_bd = int((cur.fetchone()[0]))
                     
-                    if quantidade_bd == df['quantidade'][0]: # caso 1: quantidade do equipamento no banco de dados ser exatamente a mesma da solicitada para retirada
+                    if quantidade_bd == int(df['quantidade'][0]): # caso 1: quantidade do equipamento no banco de dados ser exatamente a mesma da solicitada para retirada
                         cur.execute(
-                            "UPDATE equipamentos SET ativo = true WHERE id_equipamento = %s", df['id_equipamento'][0] 
+                            "UPDATE equipamentos SET ativo = false WHERE id_equipamento = %s", (df['id_equipamento'][0],) 
                         )
-                    elif quantidade_bd < df['quantidade'][0]: # caso 2: quantidade do equipamento no banco de dados ser insuficiente se comparada com a solicitada para retirada
+                    elif quantidade_bd < int(df['quantidade'][0]): # caso 2: quantidade do equipamento no banco de dados ser insuficiente se comparada com a solicitada para retirada
                         raise Exception
-                    elif quantidade_bd > df['quantidade'][0]: # caso 3: quantidade do equipamento no banco de dados ser maior que a solicitada para retirada
+                    elif quantidade_bd > int(df['quantidade'][0]): # caso 3: quantidade do equipamento no banco de dados ser maior que a solicitada para retirada
                         cur.execute(
-                            "UPDATE equipamento SET quantidade = quantidade - %s", (df["quantidade"][0],)
+                            "UPDATE equipamento SET quantidade = quantidade - %s", (df['quantidade'][0],)
                         )
         
                         
@@ -217,7 +258,12 @@ def alteracao_bd_json():
             enviar_email_erro(e, df['email_funcionario'][0])
             return
             
-    elif(df['operacao'][0] == "Empréstimo"):
+    gerar_xlsx()
+    enviar_email_sucesso(df['operacao'][0], df['nome_equipamento'][0], df['email_funcionario'][0])
+    insert_operacao_bd(df['email_funcionario'][0], df['operacao'][0], df['quantidade'][0], df['id_equipamento'][0])    
+    return
+    
+    if(df['operacao'][0] == "Empréstimo"):
         print(f"""
             =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
               Operação: Empréstimo
@@ -230,21 +276,20 @@ def alteracao_bd_json():
             =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
               """)
         
+"""                 
         try:
             with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
-                print("sim")
+                
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT quantidade FROM equipamentos WHERE id_equipamento = %s", (df['id_equipamento'][0],)  # query para pegar a quantidade disponivel no bd
+                        "SELECT status FROM equipamentos WHERE id_equipamento = %s", (df['id_equipamento'][0],)  # query para pegar o status do equipamento no bd
                     )
-                    quantidade_bd = int(cur.fetchone()[0])
-                    quantidade_forms = int(df['quantidade'][0])
-                    string_sql = "Emprestado"
-                    if quantidade_bd >= quantidade_forms:
-                        if quantidade_bd == quantidade_forms: # caso 1: quantidade do equipamento no banco de dados ser exatamente a mesma da solicitada para emprestimo
-                            cur.execute(
-                                "UPDATE equipamentos SET status = %s WHERE id_equipamento = %s", (string_sql, df['id_equipamento'][0],) 
-                            )
+                    status = cur.fetchone()[0]
+                    quantidade_forms = df['quantidade'][0]
+                    cur.execute(
+                        ""
+                        )
+                        
                             
                         else: # caso 2: quantidade do equipamento no banco de dados ser maior que a solicitada para emprestimo
                             cur.execute( # update na quantidade 
@@ -264,7 +309,6 @@ def alteracao_bd_json():
                             
                     else: # caso 3: quantidade do equipamento no banco de dados ser insuficiente se comparada com a solicitada para retirada (erro)
                         raise Exception
-                    
         except Exception as e:
             #enviar_email_erro(e, df['email_funcionario'][0])
             print(e)
@@ -274,7 +318,7 @@ def alteracao_bd_json():
         enviar_email_sucesso_emprestimo(df['operacao'][0], df['nome_equipamento'][0], df['email_funcionario'][0])
         insert_operacao_bd(df['email_funcionario'][0], df['operacao'][0], df['quantidade'][0], df['id_equipamento'][0]) 
         return
-    
+"""
 def esperar_email(): 
     with MailBox('imap.gmail.com').login(EMAIL, EMAIL_PASSWORD) as mailbox:
         print("Aguardando e-mail...")
@@ -343,7 +387,7 @@ def nome_ja_cadastrado(nome):
         with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
             with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT id_equipamento FROM equipamentos WHERE nome = %s", (nome.capitalize(),) # busca o id que esta cadastrado com o email
+                        "SELECT id_equipamento FROM equipamentos WHERE nome = %s", (nome,) # busca o id que esta cadastrado com o email
                     )    
                     conn.commit()
                     
@@ -362,7 +406,7 @@ def insert_operacao_bd(email, operacao, quantidade, id_equip): # função respon
     try:
         with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
             with conn.cursor() as cur:
-                if(operacao == "Entrada/Devolução"):
+                if(operacao == "Entrada"):
                     operacao = "Entrada"
                     cur.execute( # pega o primeiro valor dos IDs na ordem decrescente (último item adicionado)
                         "SELECT id_equipamento FROM equipamentos ORDER BY id_equipamento DESC LIMIT 1"
@@ -407,6 +451,12 @@ def enviar_email_sucesso(operacao, equipamento, email_user): #  envia e-mail par
         attachments={'WinMOD PRO - Inventário.xlsx':Path('WinMOD PRO - Inventário.xlsx')}
     )
     
+    email.send( # email p/ user
+        subject=f"Pedido concluído | WinMOD PRO",
+        receivers=[email_user],
+        text=f"Seu pedido de {operacao} do equipamento {equipamento} foi devidamente concluído."
+    )
+    
 def enviar_email_sucesso_emprestimo(operacao, equipamento, email_user): #  envia e-mail para user de confirmação
     print("Enviando email: Sucesso")
     email = EmailSender(host="smtp.gmail.com", port=587)
@@ -426,9 +476,18 @@ def enviar_email_sucesso_emprestimo(operacao, equipamento, email_user): #  envia
 
 
 while True:
-    gerar_xlsx_emprestimos()
     if esperar_email():
         print("Processando anexo")
         ler_anexo()
         
     time.sleep(1)
+    
+    
+
+"""
+TO DO:
+
+tratamento do nome da função nome_ja_cadastrado, a fim de evitar itens duplicados no bd por causa de uma letra maiúscula
+
+
+"""

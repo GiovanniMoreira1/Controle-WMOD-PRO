@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
-from credentials import DB_PASSWORD, DB_USER
+from credentials_app import DB_PASSWORD, DB_USER
 from PIL import Image, ImageTk
 import psycopg
 import pandas as pd
@@ -29,7 +29,7 @@ def menu_equipamentos():
     container = tk.Frame(janela, bg="#f4f6f9")
     container.place(relx=0.5, rely=0.5, anchor="center")
 
-    image_path = resource_path(os.path.join("assets", "icon.png"))
+    image_path = resource_path(os.path.join("app/assets", "icon.png"))
     img = Image.open(image_path)
     img = img.resize((120, 120))
     logo = ImageTk.PhotoImage(img)
@@ -163,7 +163,7 @@ def inserir_equipamento_janela(janela_pai):
     header = tk.Frame(main_frame, bg="#00468e", height=80)
     header.pack(fill="x")
 
-    image_path = resource_path(os.path.join("assets", "icon.png"))
+    image_path = resource_path(os.path.join("app/assets", "icon.png"))
     img = Image.open(image_path)
     img = img.resize((120, 120))
     logo = ImageTk.PhotoImage(img)
@@ -904,9 +904,9 @@ def gerar_xlsx():
         wb.save(file_name) 
     
 root = tk.Tk()
-custom_font = Font(file="fonts/Barlow-Black.ttf", family="Barlow", size=12)
-custom_font_bold = Font(file="fonts/Barlow-Bold.ttf", family="Barlow", size=15)
-custom_font_extrabold = Font(file="fonts/Barlow-ExtraBold.ttf", family="Barlow", size=20)
+custom_font = Font(file="app/fonts/Barlow-Black.ttf", family="Barlow", size=12)
+custom_font_bold = Font(file="app/fonts/Barlow-Bold.ttf", family="Barlow", size=15)
+custom_font_extrabold = Font(file="app/fonts/Barlow-ExtraBold.ttf", family="Barlow", size=20)
 root.attributes('-fullscreen', True)
 root.bind('<Escape>', lambda event: root.destroy())
 root.title("Sistema de Controle")
@@ -920,7 +920,7 @@ header = tk.Frame(main_frame, bg="#00468e", height=90)
 header.pack(fill="x")
 
 header.pack_propagate(False)
-image_path = resource_path(os.path.join("assets", "icon.png"))
+image_path = resource_path(os.path.join("app/assets", "icon.png"))
 img = Image.open(image_path)
 img = img.resize((120, 120))
 logo = ImageTk.PhotoImage(img)

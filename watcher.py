@@ -24,8 +24,33 @@ def gerar_xlsx_emprestimos():
     """
     
     with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
+         
+        with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id_equipamento FROM operacoes WHERE tipo_operacao = 'Empréstimo'"
+                )
+                rows = cur.fetchall()
+                ids = [row[0] for row in rows]
+                query = """
+                SELECT e.nome, e.categoria 
+                FROM UNNEST(%s) AS lista_id 
+                JOIN equipamentos e ON e.id_equipamento = lista_id 
+                """ # cria uma lista temporaria pra guardar os atributos respectivos de cada ID
+                cur.execute(query, (ids, ))
+                lista = cur.fetchall()
+                conn.commit()
+                    
+        df_operacoes = pd.DataFrame(lista)
+        print(df_operacoes)
+        query = """
+        SELECT nome, categoria 
+        FROM equipamentos
+        WHERE id_equipamento IN (
+            SELECT id_equipamento FROM operacoes WHERE tipo_operacao = 'Empréstimo'
+        )
+
+        """
         df_emprestimos = pd.read_sql_query("SELECT data_retorno, quantidade, status_atual FROM emprestimos", con=conn)
-        df_operacoes = pd.read_sql_query("SELECT id_equipamento, nome, categoria FROM equipamentos WHERE status = 'Emprestado'", con=conn)
         df_funcionarios = pd.read_sql_query(sql_query, con=conn)
         
         df_emprestimos = df_emprestimos.reset_index(drop=True)

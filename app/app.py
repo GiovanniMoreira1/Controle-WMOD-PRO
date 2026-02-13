@@ -29,7 +29,7 @@ def menu_equipamentos():
     container = tk.Frame(janela, bg="#f4f6f9")
     container.place(relx=0.5, rely=0.5, anchor="center")
 
-    image_path = resource_path(os.path.join("app/assets", "icon.png"))
+    image_path = resource_path(os.path.join("app/assets", "icon.png")) # caminho da imagem
     img = Image.open(image_path)
     img = img.resize((120, 120))
     logo = ImageTk.PhotoImage(img)
@@ -37,7 +37,7 @@ def menu_equipamentos():
     logo_label.image = logo
     logo_label.pack(side="top", pady=20)
 
-    titulo = tk.Label(
+    titulo = tk.Label( 
         container,
         text="Gerenciamento de Equipamentos AUTOMOTIVE",
         font=custom_font_extrabold,
@@ -99,35 +99,25 @@ def inserir_equipamento(params):
     with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
         with conn.cursor() as cur:
             try:
-                print("1")
-                cur.execute(
+                cur.execute( # query para checar duplicidade com o numero de serie
                     "SELECT id_equipamento FROM equipamentos WHERE n_serie = %s", (params[4],)
                 )
-                print("2")
                 id_equip = cur.fetchone()[0]
-                if(id_equip != None):
-                    print(id_equip)
-                    print(params[1])
-                    cur.execute(
+                if(id_equip != None): # caso exista duplicidade do item no bd 
+                    cur.execute( # incrementa com o valor que está sendo inserido no banco de dados, sem necessariamente criar um novo elemento na tabela
                         "UPDATE equipamentos SET ativo = true, quantidade = quantidade + %s WHERE id_equipamento = %s", (params[1], id_equip,)
                     )
-                    print("3")
-                    
-                    
-                cur.execute(
-                    "INSERT INTO equipamentos (nome, quantidade, descricao, fabricante, n_serie, localizacao, status, categoria) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (params)   
-                )
-                print("4")
-                cur.execute(
-                    f"SELECT id_equipamento FROM equipamentos WHERE nome = %s AND n_serie = %s", (params[0], params[4])
-                )
-                print("5")
+                else:
+                    cur.execute( # insere os valores no banco de dados de acordo com os dados informados
+                        "INSERT INTO equipamentos (nome, quantidade, descricao, fabricante, n_serie, localizacao, status, categoria) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (params)   
+                    )
+
                 conn.commit()
             except Exception as e:
                 print(e)
                 return e
         
-def inserir_equipamento_tk(params, janela, janela_pai):
+def inserir_equipamento_tk(params, janela, janela_pai): # função para retornar sucesso/falha ao usuário na interface
     produto_criado = True
     try:
         e = inserir_equipamento(params)
@@ -141,7 +131,7 @@ def inserir_equipamento_tk(params, janela, janela_pai):
         janela_pai.deiconify()
         janela.destroy() 
        
-def inserir_equipamento_janela(janela_pai):
+def inserir_equipamento_janela(janela_pai): # janela da interface que contém os campos de preenchimento do cadastro
     janela_pai.withdraw()
 
     janela = tk.Toplevel()
@@ -297,7 +287,7 @@ def inserir_equipamento_janela(janela_pai):
 def listar_equipamentos():
     with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
         with conn.cursor() as cur:
-            try:
+            try: # busca todos os elementos que estão ativos na tabela de equipamentos
                 cur.execute(
                     "SELECT * FROM equipamentos WHERE ativo = true",   
                 )
@@ -308,7 +298,7 @@ def listar_equipamentos():
             except Exception as e:
                 return e
             
-def excluir_equipamento_tk(tabela):
+def excluir_equipamento_tk(tabela): # função para retornar sucesso/falha ao usuário na interface
     selecionados = tabela.selection()
     iid = selecionados[0]
 
@@ -322,11 +312,11 @@ def excluir_equipamento_tk(tabela):
         if(tabela.exists(iid)):
             tabela.delete(iid)
 
-def excluir_equipamento(id_equipamento):
+def excluir_equipamento(id_equipamento): 
     with psycopg.connect(f"dbname=postgres user={DB_USER} password={DB_PASSWORD}") as conn:
         with conn.cursor() as cur:
             try:
-                cur.execute(
+                cur.execute( # busca a quantidade de elementos que está sendo excluida
                     f"SELECT quantidade FROM equipamentos WHERE id_equipamento = %s", (id_equipamento,)
                 )
                 qntd = cur.fetchone()
@@ -338,7 +328,7 @@ def excluir_equipamento(id_equipamento):
                 conn.commit()
             except Exception as e:
                 print(e)
-                return e    
+                return e  
                 
 def excluir_equipamento_janela(janela_pai):
     janela_pai.withdraw()
